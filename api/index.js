@@ -146,14 +146,21 @@ async function likeTimeline() {
     // Batasi jumlah item untuk simulasi perilaku manusia
     const limitedItems = items.slice(0, 3); // Proses hanya 3 item
     for (const item of limitedItems) {
+      // Log struktur data item untuk debugging
+      await redis.append('igerror.log', `${new Date().toISOString()} [DEBUG] Media data: ${JSON.stringify(item)}\n`);
+
       // Validasi data media sebelum like
-      if (!item || typeof item !== 'object' || !item.has_liked || !item.id) {
+      if (!item || typeof item !== 'object' || !item.id) {
         results.push(`[SKIP] [INVALID_MEDIA] => ${item?.id || 'unknown'}`);
-        await redis.append('igerror.log', `${new Date().toISOString()} [SKIP] Invalid media data: ${JSON.stringify(item)}\n`);
+        await redis.append('igerror.log', `${new Date().toISOString()} [SKIP] Invalid media data (missing id): ${JSON.stringify(item)}\n`);
         continue;
       }
 
-      if (!item.has_liked && !item.is_ad && item.id) {
+      // Gunakan nilai default untuk has_liked dan is_ad jika tidak ada
+      const hasLiked = item.has_liked ?? false;
+      const isAd = item.is_ad ?? false;
+
+      if (!hasLiked && !isAd && item.id) {
         const mediaId = item.id;
         const likedMedia = await redis.smembers(logKey);
         if (!likedMedia.includes(mediaId)) {
@@ -167,7 +174,12 @@ async function likeTimeline() {
             results.push(`[ERROR] [LIKE_MEDIA] => ${mediaId} (${error.message})`);
             await redis.append('igerror.log', `${new Date().toISOString()} [LIKE_MEDIA] => ${mediaId} (ERROR: ${error.message})\n`);
           }
+        } else {
+          results.push(`[SKIP] [ALREADY_LIKED] => ${mediaId}`);
         }
+      } else {
+        results.push(`[SKIP] [NOT_LIKEABLE] => ${item.id} (has_liked: ${hasLiked}, is_ad: ${isAd})`);
+        await redis.append('igerror.log', `${new Date().toISOString()} [SKIP] Not likeable: ${item.id} (has_liked: ${hasLiked}, is_ad: ${isAd})\n`);
       }
     }
     return { status: 'ok', results };
