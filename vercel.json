@@ -15,7 +15,7 @@
   "crons": [
     {
       "path": "/",
-      "schedule": "*/10 * * * *" // Jalankan setiap 10 menit
+      "schedule": "*/10 * * * *"
     }
   ]
 }
