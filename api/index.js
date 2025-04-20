@@ -112,7 +112,7 @@ async function initialize() {
     // Login jika belum
     try {
       // Delay sebelum login untuk simulasi perilaku manusia
-      await new Promise(resolve => setTimeout(resolve, 10000)); // 10 detik
+      await new Promise(resolve => setTimeout(resolve, 2000)); // 2 detik
       await ig.account.login(config.username, config.password);
       const serializedSession = JSON.stringify(ig.state.session);
       await redis.set(`${config.username}-cookies`, serializedSession);
@@ -155,7 +155,7 @@ async function likeTimeline() {
             await redis.sadd(logKey, mediaId);
             results.push(`[SUCCESS] [LIKE_MEDIA] => ${mediaId}`);
             await redis.append('igerror.log', `${new Date().toISOString()} [LIKE_MEDIA] => ${mediaId} (SUCCESS)\n`);
-            await new Promise(resolve => setTimeout(resolve, 2000)); // Delay 2 detik per like
+            await new Promise(resolve => setTimeout(resolve, 500)); // Delay 0.5 detik per like
           } catch (error) {
             results.push(`[ERROR] [LIKE_MEDIA] => ${mediaId} (${error.message})`);
             await redis.append('igerror.log', `${new Date().toISOString()} [LIKE_MEDIA] => ${mediaId} (ERROR: ${error.message})\n`);
