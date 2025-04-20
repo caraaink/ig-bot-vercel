@@ -1,6 +1,6 @@
 const express = require('express');
 const { IgApiClient } = require('instagram-private-api');
-const { kv } = require('@vercel/kv');
+const { Redis } = require('@upstash/redis');
 
 const app = express();
 app.use(express.json());
@@ -12,6 +12,12 @@ const config = {
   likeBerandaAktif: true,
 };
 
+// Inisialisasi Redis
+const redis = new Redis({
+  url: process.env.UPSTASH_REDIS_REST_URL,
+  token: process.env.UPSTASH_REDIS_REST_TOKEN,
+});
+
 // Inisialisasi Instagram client
 const ig = new IgApiClient();
 
@@ -19,9 +25,9 @@ async function initialize() {
   ig.state.generateDevice(config.username);
 
   // Cek apakah sudah login
-  const cookies = await kv.get(`${config.username}-cookies`);
-  const userId = await kv.get(`${config.username}-userId`);
-  const token = await kv.get(`${config.username}-token`);
+  const cookies = await redis.get(`${config.username}-cookies`);
+  const userId = await redis.get(`${config.username}-userId`);
+  const token = await redis.get(`${config.username}-token`);
 
   if (cookies && userId && token) {
     ig.state.session = JSON.parse(cookies);
@@ -34,12 +40,12 @@ async function initialize() {
   try {
     await ig.account.login(config.username, config.password);
     const serializedSession = JSON.stringify(ig.state.session);
-    await kv.set(`${config.username}-cookies`, serializedSession);
-    await kv.set(`${config.username}-userId`, ig.state.userId);
-    await kv.set(`${config.username}-token`, ig.state.csrfToken);
+    await redis.set(`${config.username}-cookies`, serializedSession);
+    await redis.set(`${config.username}-userId`, ig.state.userId);
+    await redis.set(`${config.username}-token`, ig.state.csrfToken);
     return { status: 'ok', userId: ig.state.userId };
   } catch (error) {
-    await kv.set('igerror.log', `${new Date().toISOString()} [LOGIN_ERROR] ${error.message}\n`, { append: true });
+    await redis.append('igerror.log', `${new Date().toISOString()} [LOGIN_ERROR] ${error.message}\n`);
     return { status: 'fail', message: error.message };
   }
 }
@@ -59,16 +65,16 @@ async function likeTimeline() {
       if (!item.has_liked && !item.is_ad && item.id) {
         const mediaId = item.id;
         // Cek apakah media sudah di-like
-        const likedMedia = await kv.smembers(logKey);
+        const likedMedia = await redis.smembers(logKey);
         if (!likedMedia.includes(mediaId)) {
           try {
             await ig.media.like({ mediaId });
-            await kv.sadd(logKey, mediaId);
+            await redis.sadd(logKey, mediaId);
             results.push(`[SUCCESS] [LIKE_MEDIA] => ${mediaId}`);
-            await kv.set('igerror.log', `${new Date().toISOString()} [LIKE_MEDIA] => ${mediaId} (SUCCESS)\n`, { append: true });
+            await redis.append('igerror.log', `${new Date().toISOString()} [LIKE_MEDIA] => ${mediaId} (SUCCESS)\n`);
           } catch (error) {
             results.push(`[ERROR] [LIKE_MEDIA] => ${mediaId} (${error.message})`);
-            await kv.set('igerror.log', `${new Date().toISOString()} [LIKE_MEDIA] => ${mediaId} (ERROR: ${error.message})\n`, { append: true });
+            await redis.append('igerror.log', `${new Date().toISOString()} [LIKE_MEDIA] => ${mediaId} (ERROR: ${error.message})\n`);
           }
         }
       }
@@ -76,9 +82,9 @@ async function likeTimeline() {
     return { status: 'ok', results };
   } catch (error) {
     if (error.message.includes('login_required')) {
-      await kv.del(`${config.username}-cookies`, `${config.username}-userId`, `${config.username}-token`);
+      await redis.del(`${config.username}-cookies`, `${config.username}-userId`, `${config.username}-token`);
     }
-    await kv.set('igerror.log', `${new Date().toISOString()} [TIMELINE_ERROR] ${error.message}\n`, { append: true });
+    await redis.append('igerror.log', `${new Date().toISOString()} [TIMELINE_ERROR] ${error.message}\n`);
     return { status: 'fail', message: error.message };
   }
 }
