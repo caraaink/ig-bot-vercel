@@ -19,6 +19,11 @@ const config = {
   username: process.env.IG_USERNAME,
   password: process.env.IG_PASSWORD,
   likeBerandaAktif: true,
+  // Fake location (Jakarta, Indonesia)
+  fakeLocation: {
+    latitude: -6.2088,
+    longitude: 106.8456,
+  },
 };
 
 // Inisialisasi Redis
@@ -34,14 +39,21 @@ try {
 // Inisialisasi Instagram client
 const ig = new IgApiClient();
 
+// Set fake location sebelum setiap request
+ig.request.customRequestInterceptor = (options) => {
+  options.headers['X-IG-Device-Location'] = JSON.stringify({
+    lat: config.fakeLocation.latitude,
+    lng: config.fakeLocation.longitude,
+  });
+  return options;
+};
+
 async function handleChallenge() {
   try {
-    // Dapatkan URL challenge
     const challengeUrl = ig.state.checkpoint.url;
     await redis.append('igerror.log', `${new Date().toISOString()} [CHALLENGE] Challenge required at ${challengeUrl}\n`);
 
-    // Coba pilih metode verifikasi (misal email atau SMS)
-    const { body } = await ig.challenge.selectVerifyMethod(0); // 0 untuk email, 1 untuk SMS (sesuaikan jika perlu)
+    const { body } = await ig.challenge.selectVerifyMethod(0); // 0 untuk email, 1 untuk SMS
     if (body.step_name === 'verify_email' || body.step_name === 'verify_sms') {
       await redis.append('igerror.log', `${new Date().toISOString()} [CHALLENGE] Verification code sent to ${body.step_data.contact_point}\n`);
       return { status: 'challenge', message: `Verification code sent to ${body.step_data.contact_point}. Please check and provide the code.` };
@@ -71,6 +83,8 @@ async function initialize() {
 
     // Login jika belum
     try {
+      // Delay sebelum login untuk simulasi perilaku manusia
+      await new Promise(resolve => setTimeout(resolve, 5000));
       await ig.account.login(config.username, config.password);
       const serializedSession = JSON.stringify(ig.state.session);
       await redis.set(`${config.username}-cookies`, serializedSession);
@@ -104,7 +118,6 @@ async function likeTimeline() {
     for (const item of items) {
       if (!item.has_liked && !item.is_ad && item.id) {
         const mediaId = item.id;
-        // Cek apakah media sudah di-like
         const likedMedia = await redis.smembers(logKey);
         if (!likedMedia.includes(mediaId)) {
           try {
@@ -112,7 +125,6 @@ async function likeTimeline() {
             await redis.sadd(logKey, mediaId);
             results.push(`[SUCCESS] [LIKE_MEDIA] => ${mediaId}`);
             await redis.append('igerror.log', `${new Date().toISOString()} [LIKE_MEDIA] => ${mediaId} (SUCCESS)\n`);
-            // Delay untuk hindari rate limit
             await new Promise(resolve => setTimeout(resolve, 1000));
           } catch (error) {
             results.push(`[ERROR] [LIKE_MEDIA] => ${mediaId} (${error.message})`);
