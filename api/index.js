@@ -5,11 +5,11 @@ const { kv } = require('@vercel/kv');
 const app = express();
 app.use(express.json());
 
-// Konfigurasi (gantikan nilai dari config.php)
+// Konfigurasi
 const config = {
-  username: 'meownimev2', // Ganti dengan username Instagram
-  password: 'eren19',     // Ganti dengan password Instagram
-  likeBerandaAktif: true, // Sesuai config.php
+  username: process.env.IG_USERNAME || 'meownimev2', // Gunakan env variable
+  password: process.env.IG_PASSWORD || 'eren19',     // Gunakan env variable
+  likeBerandaAktif: true,
 };
 
 // Inisialisasi Instagram client
@@ -18,7 +18,7 @@ const ig = new IgApiClient();
 async function initialize() {
   ig.state.generateDevice(config.username);
 
-  // Cek apakah sudah login (dari Vercel KV)
+  // Cek apakah sudah login
   const cookies = await kv.get(`${config.username}-cookies`);
   const userId = await kv.get(`${config.username}-userId`);
   const token = await kv.get(`${config.username}-token`);
@@ -26,6 +26,7 @@ async function initialize() {
   if (cookies && userId && token) {
     ig.state.session = JSON.parse(cookies);
     ig.state.userId = userId;
+    ig.state.csrfToken = token;
     return { status: 'ok', userId };
   }
 
@@ -44,7 +45,7 @@ async function initialize() {
 }
 
 async function likeTimeline() {
-  if (!config.likeBerandaAktif) return;
+  if (!config.likeBerandaAktif) return { status: 'ok', message: 'Like beranda tidak aktif' };
 
   const userId = ig.state.userId;
   const logKey = `${userId}_likesTimeline`;
@@ -52,6 +53,7 @@ async function likeTimeline() {
   try {
     const feed = ig.feed.timeline();
     const items = await feed.items();
+    const results = [];
 
     for (const item of items) {
       if (!item.has_liked && !item.is_ad && item.id) {
@@ -62,35 +64,44 @@ async function likeTimeline() {
           try {
             await ig.media.like({ mediaId });
             await kv.sadd(logKey, mediaId);
-            console.log(`[SUCCESS] [LIKE_MEDIA] => ${mediaId}`);
+            results.push(`[SUCCESS] [LIKE_MEDIA] => ${mediaId}`);
             await kv.set('igerror.log', `${new Date().toISOString()} [LIKE_MEDIA] => ${mediaId} (SUCCESS)\n`, { append: true });
           } catch (error) {
-            console.log(`[ERROR] [LIKE_MEDIA] => ${mediaId}`);
+            results.push(`[ERROR] [LIKE_MEDIA] => ${mediaId} (${error.message})`);
             await kv.set('igerror.log', `${new Date().toISOString()} [LIKE_MEDIA] => ${mediaId} (ERROR: ${error.message})\n`, { append: true });
           }
         }
       }
     }
+    return { status: 'ok', results };
   } catch (error) {
     if (error.message.includes('login_required')) {
       await kv.del(`${config.username}-cookies`, `${config.username}-userId`, `${config.username}-token`);
     }
     await kv.set('igerror.log', `${new Date().toISOString()} [TIMELINE_ERROR] ${error.message}\n`, { append: true });
-    throw error;
+    return { status: 'fail', message: error.message };
   }
 }
 
-// Endpoint utama
+// Endpoint untuk testing
 app.get('/', async (req, res) => {
+  res.send('Instagram Bot is running. Use /likes to trigger the bot.');
+});
+
+// Endpoint untuk cron manual
+app.get('/likes', async (req, res) => {
   try {
     const login = await initialize();
     if (login.status === 'fail') {
-      return res.status(500).send(login.message);
+      return res.status(500).json({ error: login.message });
     }
-    await likeTimeline();
-    res.send('Bot executed successfully');
+    const result = await likeTimeline();
+    if (result.status === 'fail') {
+      return res.status(500).json({ error: result.message });
+    }
+    res.json({ status: 'success', results: result.results || ['No new media to like'] });
   } catch (error) {
-    res.status(500).send(error.message);
+    res.status(500).json({ error: error.message });
   }
 });
 
