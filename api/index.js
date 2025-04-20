@@ -1,5 +1,5 @@
 const express = require('express');
-const { IgApiClient } = require('instagram-private-api');
+const { IgApiClient, IgCheckpointError } = require('instagram-private-api');
 const Redis = require('ioredis');
 
 const app = express();
@@ -34,6 +34,25 @@ try {
 // Inisialisasi Instagram client
 const ig = new IgApiClient();
 
+async function handleChallenge() {
+  try {
+    // Dapatkan URL challenge
+    const challengeUrl = ig.state.checkpoint.url;
+    await redis.append('igerror.log', `${new Date().toISOString()} [CHALLENGE] Challenge required at ${challengeUrl}\n`);
+
+    // Coba pilih metode verifikasi (misal email atau SMS)
+    const { body } = await ig.challenge.selectVerifyMethod(0); // 0 untuk email, 1 untuk SMS (sesuaikan jika perlu)
+    if (body.step_name === 'verify_email' || body.step_name === 'verify_sms') {
+      await redis.append('igerror.log', `${new Date().toISOString()} [CHALLENGE] Verification code sent to ${body.step_data.contact_point}\n`);
+      return { status: 'challenge', message: `Verification code sent to ${body.step_data.contact_point}. Please check and provide the code.` };
+    }
+    return { status: 'fail', message: 'Unable to handle challenge automatically. Please verify manually.' };
+  } catch (error) {
+    await redis.append('igerror.log', `${new Date().toISOString()} [CHALLENGE_ERROR] ${error.message}\n`);
+    return { status: 'fail', message: error.message };
+  }
+}
+
 async function initialize() {
   ig.state.generateDevice(config.username);
 
@@ -51,12 +70,20 @@ async function initialize() {
     }
 
     // Login jika belum
-    await ig.account.login(config.username, config.password);
-    const serializedSession = JSON.stringify(ig.state.session);
-    await redis.set(`${config.username}-cookies`, serializedSession);
-    await redis.set(`${config.username}-userId`, ig.state.userId);
-    await redis.set(`${config.username}-token`, ig.state.csrfToken);
-    return { status: 'ok', userId: ig.state.userId };
+    try {
+      await ig.account.login(config.username, config.password);
+      const serializedSession = JSON.stringify(ig.state.session);
+      await redis.set(`${config.username}-cookies`, serializedSession);
+      await redis.set(`${config.username}-userId`, ig.state.userId);
+      await redis.set(`${config.username}-token`, ig.state.csrfToken);
+      return { status: 'ok', userId: ig.state.userId };
+    } catch (error) {
+      if (error instanceof IgCheckpointError) {
+        return await handleChallenge();
+      }
+      await redis.append('igerror.log', `${new Date().toISOString()} [LOGIN_ERROR] ${error.message}\n`);
+      return { status: 'fail', message: error.message };
+    }
   } catch (error) {
     await redis.append('igerror.log', `${new Date().toISOString()} [LOGIN_ERROR] ${error.message}\n`);
     return { status: 'fail', message: error.message };
@@ -115,6 +142,9 @@ app.get('/likes', async (req, res) => {
     const login = await initialize();
     if (login.status === 'fail') {
       return res.status(500).json({ error: login.message });
+    }
+    if (login.status === 'challenge') {
+      return res.status(403).json({ error: login.message });
     }
     const result = await likeTimeline();
     if (result.status === 'fail') {
