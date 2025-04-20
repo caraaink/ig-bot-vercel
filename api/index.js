@@ -1,22 +1,35 @@
 const express = require('express');
 const { IgApiClient } = require('instagram-private-api');
-const { Redis } = require('@upstash/redis');
+const Redis = require('ioredis');
 
 const app = express();
 app.use(express.json());
 
+// Validasi environment variables
+const requiredEnvVars = ['REDIS_URL', 'IG_USERNAME', 'IG_PASSWORD'];
+for (const envVar of requiredEnvVars) {
+  if (!process.env[envVar]) {
+    console.error(`Missing environment variable: ${envVar}`);
+    process.exit(1);
+  }
+}
+
 // Konfigurasi
 const config = {
-  username: process.env.IG_USERNAME || 'meownimev2', // Gunakan env variable
-  password: process.env.IG_PASSWORD || 'eren19',     // Gunakan env variable
+  username: process.env.IG_USERNAME,
+  password: process.env.IG_PASSWORD,
   likeBerandaAktif: true,
 };
 
 // Inisialisasi Redis
-const redis = new Redis({
-  url: process.env.UPSTASH_REDIS_REST_URL,
-  token: process.env.UPSTASH_REDIS_REST_TOKEN,
-});
+let redis;
+try {
+  redis = new Redis(process.env.REDIS_URL);
+  redis.on('error', (err) => console.error('Redis Client Error:', err));
+} catch (error) {
+  console.error('Failed to initialize Redis:', error.message);
+  process.exit(1);
+}
 
 // Inisialisasi Instagram client
 const ig = new IgApiClient();
@@ -25,19 +38,19 @@ async function initialize() {
   ig.state.generateDevice(config.username);
 
   // Cek apakah sudah login
-  const cookies = await redis.get(`${config.username}-cookies`);
-  const userId = await redis.get(`${config.username}-userId`);
-  const token = await redis.get(`${config.username}-token`);
-
-  if (cookies && userId && token) {
-    ig.state.session = JSON.parse(cookies);
-    ig.state.userId = userId;
-    ig.state.csrfToken = token;
-    return { status: 'ok', userId };
-  }
-
-  // Login jika belum
   try {
+    const cookies = await redis.get(`${config.username}-cookies`);
+    const userId = await redis.get(`${config.username}-userId`);
+    const token = await redis.get(`${config.username}-token`);
+
+    if (cookies && userId && token) {
+      ig.state.session = JSON.parse(cookies);
+      ig.state.userId = userId;
+      ig.state.csrfToken = token;
+      return { status: 'ok', userId };
+    }
+
+    // Login jika belum
     await ig.account.login(config.username, config.password);
     const serializedSession = JSON.stringify(ig.state.session);
     await redis.set(`${config.username}-cookies`, serializedSession);
@@ -72,6 +85,8 @@ async function likeTimeline() {
             await redis.sadd(logKey, mediaId);
             results.push(`[SUCCESS] [LIKE_MEDIA] => ${mediaId}`);
             await redis.append('igerror.log', `${new Date().toISOString()} [LIKE_MEDIA] => ${mediaId} (SUCCESS)\n`);
+            // Delay untuk hindari rate limit
+            await new Promise(resolve => setTimeout(resolve, 1000));
           } catch (error) {
             results.push(`[ERROR] [LIKE_MEDIA] => ${mediaId} (${error.message})`);
             await redis.append('igerror.log', `${new Date().toISOString()} [LIKE_MEDIA] => ${mediaId} (ERROR: ${error.message})\n`);
