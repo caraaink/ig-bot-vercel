@@ -146,6 +146,13 @@ async function likeTimeline() {
     // Batasi jumlah item untuk simulasi perilaku manusia
     const limitedItems = items.slice(0, 3); // Proses hanya 3 item
     for (const item of limitedItems) {
+      // Validasi data media sebelum like
+      if (!item || typeof item !== 'object' || !item.has_liked || !item.id) {
+        results.push(`[SKIP] [INVALID_MEDIA] => ${item?.id || 'unknown'}`);
+        await redis.append('igerror.log', `${new Date().toISOString()} [SKIP] Invalid media data: ${JSON.stringify(item)}\n`);
+        continue;
+      }
+
       if (!item.has_liked && !item.is_ad && item.id) {
         const mediaId = item.id;
         const likedMedia = await redis.smembers(logKey);
