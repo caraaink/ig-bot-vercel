@@ -24,17 +24,17 @@ const config = {
     latitude: -6.2088,
     longitude: 106.8456,
   },
-  // Fake device (Instagram 9.0.1 Android)
+  // Fake device (Modern Samsung device, Instagram 334.0.0.42.95 Android)
   device: {
-    userAgent: 'Instagram 9.0.1 Android (18/4.3; 320dpi; 720x1280; Infinix; HM 1SW; armani; qcom; en_US)',
-    deviceString: 'Infinix-HM_1SW-armani',
-    androidVersion: 18,
-    androidRelease: '4.3',
-    dpi: '320dpi',
-    resolution: '720x1280',
-    manufacturer: 'Infinix',
-    model: 'HM 1SW',
-    cpu: 'qcom',
+    userAgent: 'Instagram 334.0.0.42.95 Android (33/13; 480dpi; 1080x2400; Samsung; SM-G998B; z3q; exynos2100; en_US)',
+    deviceString: 'Samsung-SM-G998B-z3q',
+    androidVersion: 33,
+    androidRelease: '13',
+    dpi: '480dpi',
+    resolution: '1080x2400',
+    manufacturer: 'Samsung',
+    model: 'SM-G998B',
+    cpu: 'exynos2100',
     language: 'en_US',
   },
 };
@@ -112,7 +112,7 @@ async function initialize() {
     // Login jika belum
     try {
       // Delay sebelum login untuk simulasi perilaku manusia
-      await new Promise(resolve => setTimeout(resolve, 5000));
+      await new Promise(resolve => setTimeout(resolve, 10000)); // 10 detik
       await ig.account.login(config.username, config.password);
       const serializedSession = JSON.stringify(ig.state.session);
       await redis.set(`${config.username}-cookies`, serializedSession);
@@ -143,7 +143,9 @@ async function likeTimeline() {
     const items = await feed.items();
     const results = [];
 
-    for (const item of items) {
+    // Batasi jumlah item untuk simulasi perilaku manusia
+    const limitedItems = items.slice(0, 3); // Proses hanya 3 item
+    for (const item of limitedItems) {
       if (!item.has_liked && !item.is_ad && item.id) {
         const mediaId = item.id;
         const likedMedia = await redis.smembers(logKey);
@@ -153,7 +155,7 @@ async function likeTimeline() {
             await redis.sadd(logKey, mediaId);
             results.push(`[SUCCESS] [LIKE_MEDIA] => ${mediaId}`);
             await redis.append('igerror.log', `${new Date().toISOString()} [LIKE_MEDIA] => ${mediaId} (SUCCESS)\n`);
-            await new Promise(resolve => setTimeout(resolve, 1000));
+            await new Promise(resolve => setTimeout(resolve, 2000)); // Delay 2 detik per like
           } catch (error) {
             results.push(`[ERROR] [LIKE_MEDIA] => ${mediaId} (${error.message})`);
             await redis.append('igerror.log', `${new Date().toISOString()} [LIKE_MEDIA] => ${mediaId} (ERROR: ${error.message})\n`);
