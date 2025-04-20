@@ -24,6 +24,19 @@ const config = {
     latitude: -6.2088,
     longitude: 106.8456,
   },
+  // Fake device (Instagram 9.0.1 Android)
+  device: {
+    userAgent: 'Instagram 9.0.1 Android (18/4.3; 320dpi; 720x1280; Infinix; HM 1SW; armani; qcom; en_US)',
+    deviceString: 'Infinix-HM_1SW-armani',
+    androidVersion: 18,
+    androidRelease: '4.3',
+    dpi: '320dpi',
+    resolution: '720x1280',
+    manufacturer: 'Infinix',
+    model: 'HM 1SW',
+    cpu: 'qcom',
+    language: 'en_US',
+  },
 };
 
 // Inisialisasi Redis
@@ -39,7 +52,22 @@ try {
 // Inisialisasi Instagram client
 const ig = new IgApiClient();
 
-// Set fake location sebelum setiap request
+// Set fake device dan user agent
+ig.state.deviceString = config.device.deviceString;
+ig.state.deviceId = `android-${Math.random().toString(36).substring(2, 18)}`;
+ig.state.androidVersion = config.device.androidVersion;
+ig.state.androidRelease = config.device.androidRelease;
+ig.state.dpi = config.device.dpi;
+ig.state.resolution = config.device.resolution;
+ig.state.manufacturer = config.device.manufacturer;
+ig.state.model = config.device.model;
+ig.state.cpu = config.device.cpu;
+ig.state.language = config.device.language;
+
+// Set user agent untuk semua request
+ig.request.customUserAgent = () => config.device.userAgent;
+
+// Set fake location untuk semua request
 ig.request.customRequestInterceptor = (options) => {
   options.headers['X-IG-Device-Location'] = JSON.stringify({
     lat: config.fakeLocation.latitude,
