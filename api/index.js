@@ -1,6 +1,7 @@
 const express = require('express');
 const { IgApiClient, IgCheckpointError } = require('instagram-private-api');
 const Redis = require('ioredis');
+const fetch = require('node-fetch');
 
 const app = express();
 app.use(express.json());
@@ -132,6 +133,35 @@ async function initialize() {
   }
 }
 
+async function likeMediaManual(mediaId, sessionId, csrfToken) {
+  try {
+    const response = await fetch(`https://i.instagram.com/api/v1/media/${mediaId}/like/`, {
+      method: 'POST',
+      headers: {
+        'X-CSRFToken': csrfToken,
+        'Cookie': `sessionid=${sessionId}`,
+        'User-Agent': config.device.userAgent,
+        'Content-Type': 'application/x-www-form-urlencoded',
+        'X-IG-App-ID': '936619743392459', // Instagram App ID
+        'X-IG-Device-Location': JSON.stringify({
+          lat: config.fakeLocation.latitude,
+          lng: config.fakeLocation.longitude,
+        }),
+      },
+      body: `module_name=timeline_feed&media_id=${mediaId}`,
+    });
+
+    const result = await response.json();
+    if (response.ok && result.status === 'ok') {
+      return { success: true };
+    } else {
+      throw new Error(JSON.stringify(result));
+    }
+  } catch (error) {
+    throw new Error(`Manual like failed: ${error.message}`);
+  }
+}
+
 async function likeTimeline() {
   if (!config.likeBerandaAktif) return { status: 'ok', message: 'Like beranda tidak aktif' };
 
@@ -165,8 +195,8 @@ async function likeTimeline() {
         const likedMedia = await redis.smembers(logKey);
         if (!likedMedia.includes(mediaId)) {
           try {
-            // Tambahkan parameter module_name secara manual
-            await ig.media.like({ mediaId, module_name: 'timeline_feed' });
+            // Gunakan request manual untuk like
+            await likeMediaManual(mediaId, ig.state.session.sessionid, ig.state.csrfToken);
             await redis.sadd(logKey, mediaId);
             results.push(`[SUCCESS] [LIKE_MEDIA] => ${mediaId}`);
             await redis.append('igerror.log', `${new Date().toISOString()} [LIKE_MEDIA] => ${mediaId} (SUCCESS)\n`);
