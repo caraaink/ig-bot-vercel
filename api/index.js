@@ -165,7 +165,8 @@ async function likeTimeline() {
         const likedMedia = await redis.smembers(logKey);
         if (!likedMedia.includes(mediaId)) {
           try {
-            await ig.media.like({ mediaId });
+            // Tambahkan parameter module_name secara manual
+            await ig.media.like({ mediaId, module_name: 'timeline_feed' });
             await redis.sadd(logKey, mediaId);
             results.push(`[SUCCESS] [LIKE_MEDIA] => ${mediaId}`);
             await redis.append('igerror.log', `${new Date().toISOString()} [LIKE_MEDIA] => ${mediaId} (SUCCESS)\n`);
