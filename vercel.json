@@ -5,10 +5,6 @@
       "destination": "/api/reg"
     },
     {
-      "source": "/accounts",
-      "destination": "/api/reg"
-    },
-    {
       "source": "/(.*)",
       "destination": "/index.html"
     }
