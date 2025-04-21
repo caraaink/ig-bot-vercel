@@ -1,4 +1,0 @@
-instagrapi==2.1.2
-redis==5.0.8
-fastapi==0.115.0
-uvicorn==0.31.0
