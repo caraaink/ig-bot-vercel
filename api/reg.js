@@ -94,6 +94,9 @@ async function registerAccount(email) {
       year: regData.birthday.year,
     });
 
+    // Log response lengkap dari Instagram
+    console.log(`${new Date().toISOString()} [DEBUG] Instagram response: ${JSON.stringify(response)}`);
+
     if (response.account_created) {
       const accountData = {
         email: regData.email,
