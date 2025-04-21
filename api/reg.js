@@ -105,4 +105,73 @@ async function registerAccount(email) {
         'X-IG-App-ID': '936619743392459',
         'X-IG-Connection-Type': 'WIFI',
         'X-IG-Capabilities': '3brTvw==',
-        'X-IG-App-L
+        'X-IG-App-Locale': 'en_US',
+        'X-IG-Device-Locale': 'en_US',
+        'X-IG-Mapped-Locale': 'en_US',
+        'Accept-Language': 'en-US',
+        'X-CSRFToken': csrfToken,
+      },
+      body: new URLSearchParams({
+        email: regData.email,
+        username: regData.username,
+        password: regData.password,
+        first_name: regData.first_name,
+        day: regData.birthday.day.toString(),
+        month: regData.birthday.month.toString(),
+        year: regData.birthday.year.toString(),
+        device_id: deviceId,
+        _csrftoken: csrfToken,
+      }).toString(),
+    });
+
+    // Log status dan header response
+    console.log(`${new Date().toISOString()} [DEBUG] Response status: ${response.status}`);
+    console.log(`${new Date().toISOString()} [DEBUG] Response headers: ${JSON.stringify([...response.headers])}`);
+
+    // Coba parse response sebagai JSON, jika gagal tangani sebagai teks
+    let result;
+    const responseText = await response.text();
+    console.log(`${new Date().toISOString()} [DEBUG] Raw response: ${responseText}`);
+
+    try {
+      result = JSON.parse(responseText);
+    } catch (e) {
+      throw new Error(`Invalid response format: ${responseText}`);
+    }
+
+    if (result.account_created) {
+      const accountData = {
+        email: regData.email,
+        username: regData.username,
+        password: regData.password,
+        first_name: regData.first_name,
+        created_at: new Date().toISOString(),
+      };
+      console.log(`${new Date().toISOString()} [REGISTER_SUCCESS] ${regData.username} (${regData.email})`);
+      return { status: 'success', data: accountData };
+    } else {
+      throw new Error(`Account creation failed: ${JSON.stringify(result)}`);
+    }
+  } catch (error) {
+    console.log(`${new Date().toISOString()} [REGISTER_ERROR] ${error.message}`);
+    return { status: 'fail', message: error.message };
+  }
+}
+
+// Endpoint untuk mendaftar akun
+app.post('/register', async (req, res) => {
+  const { email } = req.body;
+
+  if (!email || !email.includes('@')) {
+    return res.status(400).json({ error: 'Valid email is required' });
+  }
+
+  try {
+    const result = await registerAccount(email);
+    res.json(result);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+module.exports = app;
