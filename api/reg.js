@@ -20,7 +20,6 @@ for (const envVar of requiredEnvVars) {
 
 // Konfigurasi
 const config = {
-  // Fake device (Modern Samsung device, Instagram 334.0.0.42.95 Android)
   device: {
     userAgent: 'Instagram 334.0.0.42.95 Android (33/13; 480dpi; 1080x2400; Samsung; SM-G998B; z3q; exynos2100; en_US)',
     deviceString: 'Samsung-SM-G998B-z3q',
@@ -63,7 +62,7 @@ ig.state.language = config.device.language;
 // Set user agent untuk semua request
 ig.request.customUserAgent = () => config.device.userAgent;
 
-// Fungsi untuk generate string acak
+// Fungsi untuk generate string acak (hanya huruf dan angka)
 function generateRandomString(length) {
   const characters = 'abcdefghijklmnopqrstuvwxyz0123456789';
   let result = '';
@@ -76,12 +75,12 @@ function generateRandomString(length) {
 // Fungsi untuk generate data pendaftaran
 function generateRegistrationData(email) {
   const username = `user_${generateRandomString(8)}`;
-  const password = generateRandomString(12);
+  const password = `${generateRandomString(8)}123`; // Pastikan ada huruf dan angka
   const firstName = `User${generateRandomString(4)}`;
   const birthday = {
     day: Math.floor(Math.random() * 28) + 1,
     month: Math.floor(Math.random() * 12) + 1,
-    year: 1990 + Math.floor(Math.random() * 20), // Tahun antara 1990-2009
+    year: 1995 + Math.floor(Math.random() * 10), // Tahun antara 1995-2004
   };
   return {
     email,
@@ -97,6 +96,9 @@ async function registerAccount(email) {
     // Generate data pendaftaran
     const regData = generateRegistrationData(email);
     ig.state.generateDevice(regData.username);
+
+    // Log data pendaftaran untuk debugging
+    await redis.append('igerror.log', `${new Date().toISOString()} [DEBUG] Registration data: ${JSON.stringify(regData)}\n`);
 
     // Delay sebelum mendaftar untuk simulasi perilaku manusia
     await new Promise(resolve => setTimeout(resolve, 2000)); // 2 detik
@@ -125,7 +127,7 @@ async function registerAccount(email) {
       await redis.append('igerror.log', `${new Date().toISOString()} [REGISTER_SUCCESS] ${regData.username} (${regData.email})\n`);
       return { status: 'success', data: accountData };
     } else {
-      throw new Error('Account creation failed');
+      throw new Error(`Account creation failed: ${JSON.stringify(response)}`);
     }
   } catch (error) {
     if (error instanceof IgCheckpointError) {
