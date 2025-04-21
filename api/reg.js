@@ -1,6 +1,5 @@
 const express = require('express');
 const { IgApiClient, IgCheckpointError } = require('instagram-private-api');
-const Redis = require('ioredis');
 const path = require('path');
 
 const app = express();
@@ -8,15 +7,6 @@ app.use(express.json());
 
 // Serve file statis dari folder public
 app.use(express.static(path.join(__dirname, '../public')));
-
-// Validasi environment variables
-const requiredEnvVars = ['REDIS_URL'];
-for (const envVar of requiredEnvVars) {
-  if (!process.env[envVar]) {
-    console.error(`Missing environment variable: ${envVar}`);
-    process.exit(1);
-  }
-}
 
 // Konfigurasi
 const config = {
@@ -33,16 +23,6 @@ const config = {
     language: 'en_US',
   },
 };
-
-// Inisialisasi Redis
-let redis;
-try {
-  redis = new Redis(process.env.REDIS_URL);
-  redis.on('error', (err) => console.error('Redis Client Error:', err));
-} catch (error) {
-  console.error('Failed to initialize Redis:', error.message);
-  process.exit(1);
-}
 
 // Inisialisasi Instagram client
 const ig = new IgApiClient();
@@ -98,7 +78,7 @@ async function registerAccount(email) {
     ig.state.generateDevice(regData.username);
 
     // Log data pendaftaran untuk debugging
-    await redis.append('igerror.log', `${new Date().toISOString()} [DEBUG] Registration data: ${JSON.stringify(regData)}\n`);
+    console.log(`${new Date().toISOString()} [DEBUG] Registration data: ${JSON.stringify(regData)}`);
 
     // Delay sebelum mendaftar untuk simulasi perilaku manusia
     await new Promise(resolve => setTimeout(resolve, 2000)); // 2 detik
@@ -115,7 +95,6 @@ async function registerAccount(email) {
     });
 
     if (response.account_created) {
-      // Simpan data akun ke Redis
       const accountData = {
         email: regData.email,
         username: regData.username,
@@ -123,8 +102,7 @@ async function registerAccount(email) {
         first_name: regData.first_name,
         created_at: new Date().toISOString(),
       };
-      await redis.set(`account:${regData.username}`, JSON.stringify(accountData));
-      await redis.append('igerror.log', `${new Date().toISOString()} [REGISTER_SUCCESS] ${regData.username} (${regData.email})\n`);
+      console.log(`${new Date().toISOString()} [REGISTER_SUCCESS] ${regData.username} (${regData.email})`);
       return { status: 'success', data: accountData };
     } else {
       throw new Error(`Account creation failed: ${JSON.stringify(response)}`);
@@ -132,10 +110,10 @@ async function registerAccount(email) {
   } catch (error) {
     if (error instanceof IgCheckpointError) {
       const challengeUrl = ig.state.checkpoint.url;
-      await redis.append('igerror.log', `${new Date().toISOString()} [REGISTER_CHALLENGE] Challenge required at ${challengeUrl}\n`);
+      console.log(`${new Date().toISOString()} [REGISTER_CHALLENGE] Challenge required at ${challengeUrl}`);
       return { status: 'challenge', message: `Challenge required at ${challengeUrl}. Please verify manually.` };
     }
-    await redis.append('igerror.log', `${new Date().toISOString()} [REGISTER_ERROR] ${error.message}\n`);
+    console.log(`${new Date().toISOString()} [REGISTER_ERROR] ${error.message}`);
     return { status: 'fail', message: error.message };
   }
 }
@@ -151,21 +129,6 @@ app.post('/register', async (req, res) => {
   try {
     const result = await registerAccount(email);
     res.json(result);
-  } catch (error) {
-    res.status(500).json({ error: error.message });
-  }
-});
-
-// Endpoint untuk melihat daftar akun yang dibuat
-app.get('/accounts', async (req, res) => {
-  try {
-    const keys = await redis.keys('account:*');
-    const accounts = [];
-    for (const key of keys) {
-      const accountData = await redis.get(key);
-      accounts.push(JSON.parse(accountData));
-    }
-    res.json({ status: 'success', accounts });
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
