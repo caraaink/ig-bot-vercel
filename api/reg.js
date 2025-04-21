@@ -1,9 +1,13 @@
 const express = require('express');
 const { IgApiClient, IgCheckpointError } = require('instagram-private-api');
 const Redis = require('ioredis');
+const path = require('path');
 
 const app = express();
 app.use(express.json());
+
+// Serve file statis dari folder public
+app.use(express.static(path.join(__dirname, '../public')));
 
 // Validasi environment variables
 const requiredEnvVars = ['REDIS_URL'];
@@ -133,35 +137,6 @@ async function registerAccount(email) {
     return { status: 'fail', message: error.message };
   }
 }
-
-// Endpoint untuk halaman utama (opsional form HTML sederhana)
-app.get('/', (req, res) => {
-  res.send(`
-    <html>
-      <body>
-        <h2>Instagram Account Registration</h2>
-        <form id="registerForm" method="POST" action="/register">
-          <label for="email">Email:</label>
-          <input type="email" id="email" name="email" required />
-          <button type="submit">Register</button>
-        </form>
-        <script>
-          document.getElementById('registerForm').addEventListener('submit', async (e) => {
-            e.preventDefault();
-            const email = document.getElementById('email').value;
-            const response = await fetch('/register', {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ email }),
-            });
-            const result = await response.json();
-            alert(JSON.stringify(result));
-          });
-        </script>
-      </body>
-    </html>
-  `);
-});
 
 // Endpoint untuk mendaftar akun
 app.post('/register', async (req, res) => {
