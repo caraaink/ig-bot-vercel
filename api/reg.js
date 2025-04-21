@@ -1,5 +1,5 @@
 const express = require('express');
-const { IgApiClient, IgCheckpointError } = require('instagram-private-api');
+const fetch = require('node-fetch');
 const path = require('path');
 
 const app = express();
@@ -11,10 +11,10 @@ app.use(express.static(path.join(__dirname, '../public')));
 // Konfigurasi
 const config = {
   device: {
-    userAgent: 'Instagram 334.0.0.42.95 Android (33/13; 480dpi; 1080x2400; Samsung; SM-G998B; z3q; exynos2100; en_US)',
+    userAgent: 'Instagram 200.0.0.18.114 Android (30/11; 480dpi; 1080x2400; Samsung; SM-G998B; z3q; exynos2100; en_US)',
     deviceString: 'Samsung-SM-G998B-z3q',
-    androidVersion: 33,
-    androidRelease: '13',
+    androidVersion: 30,
+    androidRelease: '11',
     dpi: '480dpi',
     resolution: '1080x2400',
     manufacturer: 'Samsung',
@@ -23,24 +23,6 @@ const config = {
     language: 'en_US',
   },
 };
-
-// Inisialisasi Instagram client
-const ig = new IgApiClient();
-
-// Set fake device dan user agent
-ig.state.deviceString = config.device.deviceString;
-ig.state.deviceId = `android-${Math.random().toString(36).substring(2, 18)}`;
-ig.state.androidVersion = config.device.androidVersion;
-ig.state.androidRelease = config.device.androidRelease;
-ig.state.dpi = config.device.dpi;
-ig.state.resolution = config.device.resolution;
-ig.state.manufacturer = config.device.manufacturer;
-ig.state.model = config.device.model;
-ig.state.cpu = config.device.cpu;
-ig.state.language = config.device.language;
-
-// Set user agent untuk semua request
-ig.request.customUserAgent = () => config.device.userAgent;
 
 // Fungsi untuk generate string acak (hanya huruf dan angka)
 function generateRandomString(length) {
@@ -75,7 +57,6 @@ async function registerAccount(email) {
   try {
     // Generate data pendaftaran
     const regData = generateRegistrationData(email);
-    ig.state.generateDevice(regData.username);
 
     // Log data pendaftaran untuk debugging
     console.log(`${new Date().toISOString()} [DEBUG] Registration data: ${JSON.stringify(regData)}`);
@@ -83,21 +64,30 @@ async function registerAccount(email) {
     // Delay sebelum mendaftar untuk simulasi perilaku manusia
     await new Promise(resolve => setTimeout(resolve, 2000)); // 2 detik
 
-    // Daftar akun baru
-    const response = await ig.account.create({
-      email: regData.email,
-      username: regData.username,
-      password: regData.password,
-      first_name: regData.first_name,
-      day: regData.birthday.day,
-      month: regData.birthday.month,
-      year: regData.birthday.year,
+    // Kirim request manual ke Instagram API
+    const response = await fetch('https://i.instagram.com/api/v1/accounts/create/', {
+      method: 'POST',
+      headers: {
+        'User-Agent': config.device.userAgent,
+        'Content-Type': 'application/x-www-form-urlencoded',
+        'X-IG-App-ID': '936619743392459', // Instagram App ID
+      },
+      body: new URLSearchParams({
+        email: regData.email,
+        username: regData.username,
+        password: regData.password,
+        first_name: regData.first_name,
+        day: regData.birthday.day.toString(),
+        month: regData.birthday.month.toString(),
+        year: regData.birthday.year.toString(),
+        device_id: `android-${Math.random().toString(36).substring(2, 18)}`,
+      }).toString(),
     });
 
-    // Log response lengkap dari Instagram
-    console.log(`${new Date().toISOString()} [DEBUG] Instagram response: ${JSON.stringify(response)}`);
+    const result = await response.json();
+    console.log(`${new Date().toISOString()} [DEBUG] Instagram response: ${JSON.stringify(result)}`);
 
-    if (response.account_created) {
+    if (result.account_created) {
       const accountData = {
         email: regData.email,
         username: regData.username,
@@ -108,14 +98,9 @@ async function registerAccount(email) {
       console.log(`${new Date().toISOString()} [REGISTER_SUCCESS] ${regData.username} (${regData.email})`);
       return { status: 'success', data: accountData };
     } else {
-      throw new Error(`Account creation failed: ${JSON.stringify(response)}`);
+      throw new Error(`Account creation failed: ${JSON.stringify(result)}`);
     }
   } catch (error) {
-    if (error instanceof IgCheckpointError) {
-      const challengeUrl = ig.state.checkpoint.url;
-      console.log(`${new Date().toISOString()} [REGISTER_CHALLENGE] Challenge required at ${challengeUrl}`);
-      return { status: 'challenge', message: `Challenge required at ${challengeUrl}. Please verify manually.` };
-    }
     console.log(`${new Date().toISOString()} [REGISTER_ERROR] ${error.message}`);
     return { status: 'fail', message: error.message };
   }
