@@ -1,5 +1,6 @@
 {
   "version": 2,
+  "framework": null,
   "functions": {
     "api/likes.py": {
       "runtime": "python@3.12"
