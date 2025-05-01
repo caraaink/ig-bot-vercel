@@ -1,9 +1,7 @@
 {
   "version": 2,
   "functions": {
-    "api/likes.py": {
-      "runtime": "python@3.9"
-    }
+    "api/likes.py": {}
   },
   "routes": [
     {
