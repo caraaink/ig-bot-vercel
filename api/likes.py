@@ -15,7 +15,7 @@ def handler(request):
                 "body": json.dumps({"error": "Failed to fetch accounts from API"})
             }
 
-        # Parse account data (assuming API returns a list of {username, password} objects)
+        # Parse account data
         accounts = response.json()
         if not accounts:
             return {
@@ -40,19 +40,39 @@ def handler(request):
             # Initialize instagrapi client
             cl = Client()
 
-            # Perform login
+            # Try to load session from Uptaste
+            session_url = f"https://ig-bot-tau.vercel.app/sessions/session_{username}.json"
             try:
-                cl.login(username, password)
-                results.append({
-                    "username": username,
-                    "status": "logged_in",
-                    "message": f"Successfully logged in for {username}"
-                })
+                session_response = requests.get(session_url)
+                if session_response.status_code == 200:
+                    session_data = session_response.json()
+                    cl.load_settings_dict(session_data)
+                    cl.login(username, password)  # Verify session
+                    results.append({
+                        "username": username,
+                        "status": "logged_in",
+                        "message": f"Loaded session for {username}"
+                    })
+                else:
+                    # No session found, perform fresh login
+                    cl.login(username, password)
+                    # Save session to Uptaste
+                    session_data = cl.get_settings()
+                    save_session_url = "https://ig-bot-tau.vercel.app/sessions"
+                    requests.post(save_session_url, json={
+                        "username": username,
+                        "session": session_data
+                    })
+                    results.append({
+                        "username": username,
+                        "status": "logged_in",
+                        "message": f"Created and saved new session for {username}"
+                    })
             except Exception as e:
                 results.append({
                     "username": username,
                     "status": "failed",
-                    "message": f"Failed to login for {username}: {str(e)}"
+                    "message": f"Failed to login or load session for {username}: {str(e)}"
                 })
                 continue
 
@@ -84,7 +104,7 @@ def handler(request):
                                     "message": f"Liked post: {media_id} ({media_code})"
                                 })
                                 count += 1
-                                time.sleep(0.5)  # 500ms delay to avoid rate limits
+                                time.sleep(0.5)  # 500ms delay
                             else:
                                 continue
                         else:
