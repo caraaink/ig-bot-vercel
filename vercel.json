@@ -2,13 +2,7 @@
   "version": 2,
   "functions": {
     "api/likes.py": {
-      "maxDuration": 60
+      "runtime": "python@3.9"
     }
-  },
-  "routes": [
-    {
-      "src": "/api/likes",
-      "dest": "/api/likes.py"
-    }
-  ]
+  }
 }
