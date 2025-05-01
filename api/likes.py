@@ -3,30 +3,48 @@ import time
 import os
 import random
 import logging
+import requests
 from instagrapi import Client
-from supabase import create_client, Client as SupabaseClient
 from http import HTTPStatus
 
 # Inisialisasi logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-# Inisialisasi Supabase client
-SUPABASE_URL = os.getenv("SUPABASE_URL")
-SUPABASE_KEY = os.getenv("SUPABASE_KEY")
-supabase: SupabaseClient = create_client(SUPABASE_URL, SUPABASE_KEY)
+# Vercel KV config
+KV_URL = os.getenv("KV_REST_API_URL")
+KV_TOKEN = os.getenv("KV_REST_API_TOKEN")
+KV_HEADERS = {"Authorization": f"Bearer {KV_TOKEN}"}
+
+def get_kv_data(key):
+    try:
+        response = requests.get(f"{KV_URL}/get/{key}", headers=KV_HEADERS)
+        return response.json().get("result")
+    except Exception as e:
+        logger.error(f"Gagal mengambil {key} dari KV: {str(e)}")
+        return None
+
+def set_kv_data(key, value):
+    try:
+        requests.post(f"{KV_URL}/set/{key}", headers=KV_HEADERS, json={"value": value})
+    except Exception as e:
+        logger.error(f"Gagal menyimpan {key} ke KV: {str(e)}")
 
 def handler(request):
     try:
-        # Ambil data akun dari tabel accounts
-        logger.info("Mengambil data akun dari Supabase")
-        response = supabase.table("accounts").select("*").execute()
-        accounts = response.data[0]["data"]
-        if not accounts:
-            logger.error("Tidak ada akun yang ditemukan")
+        # Ambil data akun dari Vercel KV
+        accounts_data = get_kv_data("accounts")
+        if not accounts_data:
+            logger.error("Tidak ada akun di Vercel KV")
             return {
                 "statusCode": HTTPStatus.BAD_REQUEST,
                 "body": json.dumps({"error": "Tidak ada akun yang ditemukan"})
+            }
+        accounts = json.loads(accounts_data)
+        if not accounts:
+            return {
+                "statusCode": HTTPStatus.BAD_REQUEST,
+                "body": json.dumps({"error": "Daftar akun kosong"})
             }
 
         results = []
@@ -35,9 +53,8 @@ def handler(request):
         for account in accounts:
             username = account.get("username")
             password = account.get("password")
-            logger.info(f"Memproses akun: {username}")
             if not username or not password:
-                logger.error(f"Data akun tidak valid untuk {username or 'unknown'}")
+                logger.error(f"Data akun tidak valid: {username or 'unknown'}")
                 results.append({
                     "username": username or "unknown",
                     "status": "failed",
@@ -45,16 +62,16 @@ def handler(request):
                 })
                 continue
 
-            # Inisialisasi client instagrapi
+            logger.info(f"Memproses akun: {username}")
             cl = Client()
 
-            # Cek sesi
+            # Cek sesi dari Vercel KV
+            session_key = f"session:{username}"
+            session_data = get_kv_data(session_key)
             try:
-                session_response = supabase.table("session").select("session_data").eq("username", username).execute()
-                if session_response.data:
-                    session_data = session_response.data[0]["session_data"]
-                    cl.load_settings_dict(session_data)
-                    cl.login(username, password)
+                if session_data:
+                    cl.load_settings_dict(json.loads(session_data))
+                    cl.login(username, password)  # Verifikasi sesi
                     results.append({
                         "username": username,
                         "status": "logged_in",
@@ -63,10 +80,7 @@ def handler(request):
                 else:
                     cl.login(username, password)
                     session_data = cl.get_settings()
-                    supabase.table("session").insert({
-                        "username": username,
-                        "session_data": session_data
-                    }).execute()
+                    set_kv_data(session_key, json.dumps(session_data))
                     results.append({
                         "username": username,
                         "status": "logged_in",
@@ -77,66 +91,50 @@ def handler(request):
                 results.append({
                     "username": username,
                     "status": "failed",
-                    "message": f"Gagal login atau memuat sesi untuk {username}: {str(e)}"
+                    "message": f"Gagal login: {str(e)}"
                 })
                 continue
 
-            # Ambil feed
+            # Ambil feed dan like 2 postingan
             try:
                 feed = cl.get_timeline_feed()
-            except Exception as e:
-                logger.error(f"Gagal mengambil feed untuk {username}: {str(e)}")
-                results.append({
-                    "username": username,
-                    "status": "failed",
-                    "message": f"Gagal mengambil feed untuk {username}: {str(e)}"
-                })
-                continue
-
-            # Like 2 postingan
-            count = 0
-            try:
-                for post in feed['feed_items']:
-                    if count < 2:
-                        if 'media_or_ad' in post:
-                            media = post['media_or_ad']
-                            if 'id' in media and 'code' in media and media.get('product_type') == 'feed':
-                                media_id = media['id']
-                                media_code = media['code']
-                                logger.info(f"Memberikan like pada {media_code}")
-                                cl.media_like(media_id)
-                                results.append({
-                                    "username": username,
-                                    "status": "success",
-                                    "message": f"Berhasil like postingan: {media_id} ({media_code})"
-                                })
-                                count += 1
-                                time.sleep(random.uniform(2, 5))
-                            else:
-                                continue
-                        else:
-                            continue
-                    else:
+                count = 0
+                for post in feed.get("feed_items", []):
+                    if count >= 2:
                         break
-                logger.info(f"Selesai memberikan {count} like untuk {username}")
+                    if "media_or_ad" not in post:
+                        continue
+                    media = post["media_or_ad"]
+                    if media.get("product_type") != "feed" or not media.get("id"):
+                        continue
+                    media_id = media["id"]
+                    media_code = media.get("code", "unknown")
+                    logger.info(f"Memberikan like pada {media_code}")
+                    cl.media_like(media_id)
+                    results.append({
+                        "username": username,
+                        "status": "success",
+                        "message": f"Berhasil like postingan: {media_code}"
+                    })
+                    count += 1
+                    time.sleep(random.uniform(2, 5))
                 results.append({
                     "username": username,
                     "status": "completed",
-                    "message": f"Selesai memberikan {count} like untuk {username}"
+                    "message": f"Selesai memberikan {count} like"
                 })
             except Exception as e:
-                logger.error(f"Error saat memberikan like untuk {username}: {str(e)}")
+                logger.error(f"Gagal like untuk {username}: {str(e)}")
                 results.append({
                     "username": username,
                     "status": "failed",
-                    "message": f"Error saat memberikan like untuk {username}: {str(e)}"
+                    "message": f"Gagal like: {str(e)}"
                 })
 
-        logger.info("Semua akun telah diproses")
         return {
             "statusCode": HTTPStatus.OK,
             "body": json.dumps({
-                "message": "Semua akun telah diproses",
+                "message": "Proses selesai",
                 "results": results
             })
         }
