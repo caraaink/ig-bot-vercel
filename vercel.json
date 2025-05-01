@@ -1,7 +1,9 @@
 {
   "version": 2,
   "functions": {
-    "api/likes.py": {}
+    "api/likes.py": {
+      "maxDuration": 60
+    }
   },
   "routes": [
     {
