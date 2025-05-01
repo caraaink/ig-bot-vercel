@@ -1,31 +1,29 @@
 import json
 import time
-import requests
+import os
 from instagrapi import Client
+from supabase import create_client, Client as SupabaseClient
 from http import HTTPStatus
+
+# Inisialisasi Supabase client
+SUPABASE_URL = os.getenv("SUPABASE_URL")
+SUPABASE_KEY = os.getenv("SUPABASE_KEY")
+supabase: SupabaseClient = create_client(SUPABASE_URL, SUPABASE_KEY)
 
 def handler(request):
     try:
-        # Fetch account data from Uptaste API
-        api_url = "https://ig-bot-tau.vercel.app/likes"
-        response = requests.get(api_url)
-        if response.status_code != 200:
-            return {
-                "statusCode": HTTPStatus.INTERNAL_SERVER_ERROR,
-                "body": json.dumps({"error": "Failed to fetch accounts from API"})
-            }
-
-        # Parse account data
-        accounts = response.json()
+        # Ambil data akun dari tabel accounts
+        response = supabase.table("accounts").select("*").execute()
+        accounts = response.data[0]["data"]  # Kolom 'data' berisi JSON akun
         if not accounts:
             return {
                 "statusCode": HTTPStatus.BAD_REQUEST,
-                "body": json.dumps({"error": "No accounts found in API response"})
+                "body": json.dumps({"error": "Tidak ada akun yang ditemukan"})
             }
 
         results = []
 
-        # Process each account
+        # Proses setiap akun
         for account in accounts:
             username = account.get("username")
             password = account.get("password")
@@ -33,61 +31,59 @@ def handler(request):
                 results.append({
                     "username": username or "unknown",
                     "status": "failed",
-                    "message": "Invalid account data"
+                    "message": "Data akun tidak valid"
                 })
                 continue
 
-            # Initialize instagrapi client
+            # Inisialisasi client instagrapi
             cl = Client()
 
-            # Try to load session from Uptaste
-            session_url = f"https://ig-bot-tau.vercel.app/sessions/session_{username}.json"
+            # Cek apakah sesi sudah ada di tabel session
             try:
-                session_response = requests.get(session_url)
-                if session_response.status_code == 200:
-                    session_data = session_response.json()
+                session_response = supabase.table("session").select("session_data").eq("username", username).execute()
+                if session_response.data:
+                    session_data = session_response.data[0]["session_data"]
                     cl.load_settings_dict(session_data)
-                    cl.login(username, password)  # Verify session
+                    cl.login(username, password)  # Verifikasi sesi
                     results.append({
                         "username": username,
                         "status": "logged_in",
-                        "message": f"Loaded session for {username}"
+                        "message": f"Sesi dimuat untuk {username}"
                     })
                 else:
-                    # No session found, perform fresh login
+                    # Login baru jika sesi tidak ada
                     cl.login(username, password)
-                    # Save session to Uptaste
                     session_data = cl.get_settings()
-                    save_session_url = "https://ig-bot-tau.vercel.app/sessions"
-                    requests.post(save_session_url, json={
+                    # Simpan sesi ke tabel session
+                    supabase.table("session").insert({
                         "username": username,
-                        "session": session_data
-                    })
+                        "session_data": session_data
+                    }).execute()
                     results.append({
                         "username": username,
                         "status": "logged_in",
-                        "message": f"Created and saved new session for {username}"
+                        "message": f"Sesi baru disimpan untuk {username}"
                     })
             except Exception as e:
                 results.append({
                     "username": username,
                     "status": "failed",
-                    "message": f"Failed to login or load session for {username}: {str(e)}"
+                    "message": f"Gagal login atau memuat sesi untuk {username}: {str(e)}"
                 })
                 continue
 
-            # Fetch timeline feed
+            # Ambil postingan dari feed
             try:
                 feed = cl.get_timeline_feed()
             except Exception as e:
                 results.append({
                     "username": username,
                     "status": "failed",
-                    "message": f"Failed to fetch feed for {username}: {str(e)}"
+                    "message": f"Gagal mengambil feed untuk {username}: {str(e)}"
                 })
                 continue
 
-            # Like up to 2 posts
+            # Berikan like pada 2 postingan pertama
             count = 0
             try:
                 for post in feed['feed_items']:
@@ -101,10 +97,10 @@ def handler(request):
                                 results.append({
                                     "username": username,
                                     "status": "success",
-                                    "message": f"Liked post: {media_id} ({media_code})"
+                                    "message": f"Berhasil like postingan: {media_id} ({media_code})"
                                 })
                                 count += 1
-                                time.sleep(0.5)  # 500ms delay
+                                time.sleep(0.5)  # Jeda 500ms
                             else:
                                 continue
                         else:
@@ -114,19 +110,19 @@ def handler(request):
                 results.append({
                     "username": username,
                     "status": "completed",
-                    "message": f"Finished liking {count} posts for {username}"
+                    "message": f"Selesai memberikan {count} like untuk {username}"
                 })
             except Exception as e:
                 results.append({
                     "username": username,
                     "status": "failed",
-                    "message": f"Error liking posts for {username}: {str(e)}"
+                    "message": f"Error saat memberikan like untuk {username}: {str(e)}"
                 })
 
         return {
             "statusCode": HTTPStatus.OK,
             "body": json.dumps({
-                "message": "All accounts processed",
+                "message": "Semua akun telah diproses",
                 "results": results
             })
         }
@@ -134,5 +130,5 @@ def handler(request):
     except Exception as e:
         return {
             "statusCode": HTTPStatus.INTERNAL_SERVER_ERROR,
-            "body": json.dumps({"error": f"Server error: {str(e)}"})
+            "body": json.dumps({"error": f"Error server: {str(e)}"})
         }
