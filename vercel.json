@@ -1,12 +1,18 @@
 {
-  "rewrites": [
+  "version": 2,
+  "framework": {
+    "slug": "python",
+    "version": "3.9"
+  },
+  "functions": {
+    "api/likes.py": {
+      "runtime": "python@3.9"
+    }
+  },
+  "routes": [
     {
-      "source": "/register",
-      "destination": "/api/reg"
-    },
-    {
-      "source": "/(.*)",
-      "destination": "/index.html"
+      "src": "/api/likes",
+      "dest": "/api/likes.py"
     }
   ]
 }
