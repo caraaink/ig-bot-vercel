@@ -1,9 +1,5 @@
 {
   "version": 2,
-  "framework": {
-    "slug": "python",
-    "version": "3.9"
-  },
   "functions": {
     "api/likes.py": {
       "runtime": "python@3.9"
