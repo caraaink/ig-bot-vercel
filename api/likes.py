@@ -119,7 +119,7 @@ def handler(request):
                     count += 1
                     time.sleep(random.uniform(2, 5))
                 results.append({
-                    "username": username,
+                    "username" : username,
                     "status": "completed",
                     "message": f"Selesai memberikan {count} like"
                 })
