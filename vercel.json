@@ -1,9 +1,15 @@
 {
   "version": 2,
-  "framework": null,
-  "functions": {
-    "api/likes.py": {
-      "runtime": "python@3.12"
+  "builds": [
+    {
+      "src": "api/index.py",
+      "use": "@vercel/python"
     }
-  }
+  ],
+  "routes": [
+    {
+      "src": "/api/(.*)",
+      "dest": "/api/index.py"
+    }
+  ]
 }
